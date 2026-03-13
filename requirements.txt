@@ -3,4 +3,4 @@ numpy
 pandas
 plotly
 pyomo
-streamlit
+streamlit>=1.23.0
