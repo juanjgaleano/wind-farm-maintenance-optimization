@@ -213,7 +213,7 @@ with tab1:
     col_img, col_txt = st.columns([1, 2])
     
     with col_img:
-        st.image("assets/eolico_off.jpg", use_container_width=True)
+        st.image("assets/eolico_off.jpg", width='stretch')
     
     with col_txt:
         st.markdown("""
@@ -576,7 +576,7 @@ with tab5:
             with c1:
                 selected_file = st.selectbox("Instancia", json_files, label_visibility="collapsed")
             with c2:
-                run = st.button("Ejecutar", type="primary", use_container_width=True)
+                run = st.button("Ejecutar", type="primary", width='stretch')
  
             if run:
                 file_path = os.path.join(data_folder, selected_file)
@@ -751,7 +751,7 @@ with tab5:
                     <span><span class="legend-dot" style="background:#c9a99a;"></span>Falla</span>
                 </div>
                 """, unsafe_allow_html=True)
-                st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
+                st.plotly_chart(fig_bar, width='stretch', config={"displayModeBar": False})
  
                 # ── GANTT (HEATMAP MINIMALISTA) ───────────────
                 st.markdown('<div class="section-title">Calendario de acciones</div>', unsafe_allow_html=True)
@@ -832,7 +832,7 @@ with tab5:
                     <span><span class="legend-dot" style="background:rgba(176,90,90,0.18); border:1px solid rgba(176,90,90,0.4);"></span>Emergencia activa</span>
                 </div>
                 """, unsafe_allow_html=True)
-                st.plotly_chart(fig_gantt, use_container_width=True, config={"displayModeBar": False})
+                st.plotly_chart(fig_gantt, width='stretch', config={"displayModeBar": False})
  
                 # ── TABLAS DETALLADAS ─────────────────────────
                 st.markdown('<div class="section-title">Tablas detalladas</div>', unsafe_allow_html=True)
@@ -845,17 +845,17 @@ with tab5:
                     return "color:#444;"
 
                 st.markdown('<div class="section-title" style="margin-top:8px;">Mantenimiento</div>', unsafe_allow_html=True)
-                st.dataframe(res['maintenance'].style.map(_style), use_container_width=True)
+                st.dataframe(res['maintenance'].style.map(_style), width='stretch')
 
                 st.markdown('<div class="section-title">Despliegue de emergencia</div>', unsafe_allow_html=True)
-                st.dataframe(res['emergency'].style.map(_style), use_container_width=True)
+                st.dataframe(res['emergency'].style.map(_style), width='stretch')
 
                 st.markdown('<div class="section-title">Evolución de salud</div>', unsafe_allow_html=True)
                 st.dataframe(
                     res['health'].style
                         .format("{:.2f}")
                         .background_gradient(cmap="Blues", axis=None),
-                    use_container_width=True,
+                    width='stretch',
                 )
 
                 st.markdown('<div class="section-title">Salud desperdiciada</div>', unsafe_allow_html=True)
@@ -863,5 +863,5 @@ with tab5:
                     res['loss'].style
                         .format("{:.2f}")
                         .background_gradient(cmap="Oranges", axis=None),
-                    use_container_width=True,
+                    width='stretch',
                 )
