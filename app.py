@@ -116,10 +116,21 @@ def build_model(data):
     return model
 
 # Solver
-def solve_instance(data):
-    model = build_model(data)   
+def solve_instance(data, time_limit=None):
+    model = build_model(data)
     solver = pyo.SolverFactory("appsi_highs")
-    solver.solve(model)
+    if time_limit is not None:
+        solver.options["time_limit"] = time_limit
+    results = solver.solve(model)
+
+    # Termination status
+    term = results.solver.termination_condition
+    if term == pyo.TerminationCondition.optimal:
+        status = "optimal"
+    elif term == pyo.TerminationCondition.maxTimeLimit:
+        status = "feasible"
+    else:
+        status = "infeasible"
 
     # Cost
     cost = pyo.value(model.objetive_minimize_cost)
@@ -155,7 +166,8 @@ def solve_instance(data):
         "maintenance": maintenance,
         "emergency": emergency,
         "health": health,
-        "loss": loss
+        "loss": loss,
+        "status": status,
     }
 
 
@@ -200,12 +212,13 @@ st.markdown("""
 st.divider()
 
 # --- PESTAÑAS ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "Contexto Problema", 
     "Descripción", 
     "Modelo Matemático", 
     "Código Python",
-    "Solver"
+    "Solver",
+    "Análisis Resultados",
 ])
 
 # --- 1. CONTEXTO PROBLEMA ---
@@ -213,7 +226,7 @@ with tab1:
     col_img, col_txt = st.columns([1, 2])
     
     with col_img:
-        st.image("assets/eolico_off.jpg", width='stretch')
+        st.image("assets/eolico_off.jpg", use_container_width=True)
     
     with col_txt:
         st.markdown("""
@@ -234,40 +247,35 @@ with tab1:
 # --- 2. VERBALIZACIÓN DEL PROBLEMA ---
 with tab2:
     st.markdown("""
-    ### 1. Conjuntos (Elementos del Sistema)
+    ### ***Conjuntos***
     El problema se enmarca en un sistema compuesto por:
     * **Horizonte de Planificación:** Un periodo de tiempo discreto (días) sobre el cual se toman las decisiones.
     * **Aerogeneradores:** La flota de turbinas individuales que componen el parque eólico.
     * **Recursos:** Los diferentes tipos de insumos, personal especializado o embarcaciones necesarias para realizar intervenciones.
     * **Ventanas de Emergencia:** Los subconjuntos de días posibles en los que se puede iniciar el despliegue de la flota de contingencia.
 
-    ### 2. Parámetros (Datos de Entrada)
-    Para cada instancia del problema, se asume que la siguiente información es conocida y determinística:
-    * **Dinámica de Salud:** La tasa de degradación diaria de cada turbina por operación natural y su capacidad de recuperación al recibir mantenimiento.
-    * **Límites Operativos:** Los umbrales de salud máxima de diseño y el nivel mínimo de salud antes de que una turbina cruce al estado de falla.
-    * **Disponibilidad y Consumo:** La cantidad máxima de recursos disponibles por día y los requerimientos específicos de recursos para intervenir cada turbina.
-    * **Estructura de Costos:** Los costos asociados al uso de recursos, las altas penalizaciones por turbina fallada, el costo fijo logístico de desplegar la flota de emergencia y un costo de penalización por realizar mantenimientos prematuros (desperdicio de vida útil de los componentes).
-    * **Reglas de Contingencia:** El límite máximo de fallas simultáneas permitidas antes de declarar crisis ($F_{max}$) y el número de días que la flota de emergencia debe operar obligatoriamente una vez activada ($L$).
+    ### ***Decisiones***
+    * **Plan de Mantenimiento:** Qué turbina intervenir en qué día específico del horizonte.
+    * **Estado de Falla:** Identificar lógicamente qué turbinas han cruzado el umbral de falla en un día dado.
+    * **Despliegue de Emergencia:** En qué día exacto inicia sus operaciones la flota de emergencia.
+    * **Nivel de Salud:** Rastrear el estado operativo exacto de cada turbina a lo largo del tiempo.
+    * **Salud Desperdiciada:** Cuantificar la recuperación teórica que se pierde si una turbina recibe mantenimiento cuando ya está cerca de su límite máximo de salud.
 
-    ### 3. Decisiones (Variables del Modelo)
-    El sistema de optimización debe determinar de forma autónoma:
-    * **Plan de Mantenimiento (Binaria):** Qué turbina intervenir en qué día específico del horizonte.
-    * **Estado de Falla (Binaria):** Identificar lógicamente qué turbinas han cruzado el umbral de falla en un día dado.
-    * **Despliegue de Emergencia (Binaria):** En qué día exacto inicia sus operaciones la flota de emergencia.
-    * **Nivel de Salud (Continua):** Rastrear el estado operativo exacto de cada turbina a lo largo del tiempo.
-    * **Salud Desperdiciada (Continua):** Cuantificar la recuperación teórica que se pierde si una turbina recibe mantenimiento cuando ya está cerca de su límite máximo de salud.
+    ### ***Objetivo*** 
+    Minimizar el costo total operativo, compuesto por la activación de la flota de emergencia, la ejecución de mantenimientos, las penalizaciones por falla y la penalización por la salud desperdiciada.
 
-    ### 4. Objetivo
-    La meta central del modelo es **minimizar el costo total operativo**. Esto implica encontrar el equilibrio económico perfecto entre gastar recursos en mantenimientos preventivos constantes versus permitir que las turbinas se degraden, asumiendo las severas penalizaciones por falla o los costos masivos de la flota de emergencia.
+    ### ***Restricciones***
+    ***1. Disponibilidad de Recursos:*** El consumo total de cada recurso en cada día no puede exceder la cantidad disponible.
 
-    ### 5. Restricciones (Reglas Lógicas y Físicas)
-    Cualquier plan de mantenimiento propuesto debe respetar las siguientes condiciones estrictas:
-    * **Capacidad Técnica:** En ningún día, el consumo total de un recurso para ejecutar mantenimientos puede superar su disponibilidad física en el parque.
-    * **Evolución del Estado:** La salud de una turbina hoy es estrictamente igual a su salud de ayer, más la recuperación por mantenimiento, menos la degradación normal por uso, ajustando cualquier desperdicio por tope máximo.
-    * **Límites de Diseño:** Ninguna turbina puede registrar un nivel de salud superior a su capacidad máxima de fábrica.
-    * **Condición de Falla:** Si la dinámica de desgaste indica que la salud cae por debajo del umbral mínimo, el sistema está obligado a declarar esa turbina en estado de falla para aplicar la penalización.
-    * **Gatillo de Emergencia:** Si la suma de turbinas falladas en un mismo día alcanza o supera el límite crítico estipulado, es imperativo que la flota de emergencia esté activa durante ese día para soportar la operación.
-    * **Exclusividad de Flota:** La flota de emergencia solo puede desplegarse en un único bloque de tiempo continuo; no pueden existir dos despliegues simultáneos o solapados durante el horizonte de planificación.
+    ***2. Dinámica de Salud:*** El estado de salud actual más el desperdicio equivale a la salud del día anterior, más la recuperación en caso de mantenimiento, menos la degradación en caso de operación normal.
+
+    ***3. Límite Máximo de Salud:*** La salud de un aerogenerador no puede superar su condición máxima de diseño.
+
+    ***4. Declaración de Falla:*** Si la salud de un aerogenerador cae por debajo de su umbral mínimo de operación, se declara que el aerogenerador falló.
+
+    ***5. Activación de la Flota de Emergencia:*** Si el número de fallas simultáneas supera el umbral permitido, se obliga al modelo a tener una flota de emergencia activa que cubra ese día.
+
+    ***6. Activación No Solapada:*** Como máximo, solo puede haber un despliegue de la flota de emergencia activo en cualquier día.
     """)
 
 # --- 3. MODELO MATEMÁTICO ---
@@ -572,20 +580,41 @@ with tab5:
         if not json_files:
             st.warning(f"La carpeta '{data_folder}' está vacía.")
         else:
-            c1, c2 = st.columns([4, 1])
+            TIME_OPTIONS = {
+                "5 minutos": 300,
+                "10 minutos": 600,
+                "15 minutos": 900,
+                "Hasta el óptimo": None,
+            }
+
+            c1, c2, c3 = st.columns([3, 2, 1])
             with c1:
                 selected_file = st.selectbox("Instancia", json_files, label_visibility="collapsed")
             with c2:
-                run = st.button("Ejecutar", type="primary", width='stretch')
+                selected_time_label = st.selectbox(
+                    "Tiempo límite",
+                    list(TIME_OPTIONS.keys()),
+                    index=3,
+                    label_visibility="collapsed",
+                )
+            with c3:
+                run = st.button("Ejecutar", type="primary", use_container_width=True)
  
             if run:
                 file_path = os.path.join(data_folder, selected_file)
                 with open(file_path) as f:
                     instance_data = json.load(f)
+
+                selected_time = TIME_OPTIONS[selected_time_label]
+                spinner_msg = (
+                    f"Resolviendo con HiGHS (límite: {selected_time_label})..."
+                    if selected_time is not None
+                    else "Resolviendo con HiGHS hasta el óptimo..."
+                )
  
-                with st.spinner("Resolviendo con HiGHS..."):
+                with st.spinner(spinner_msg):
                     t0  = time.time()
-                    res = solve_instance(instance_data)
+                    res = solve_instance(instance_data, time_limit=selected_time)
                     elapsed = time.time() - t0
 
                     st.session_state["res"] = res
@@ -751,7 +780,7 @@ with tab5:
                     <span><span class="legend-dot" style="background:#c9a99a;"></span>Falla</span>
                 </div>
                 """, unsafe_allow_html=True)
-                st.plotly_chart(fig_bar, width='stretch', config={"displayModeBar": False})
+                st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
  
                 # ── GANTT (HEATMAP MINIMALISTA) ───────────────
                 st.markdown('<div class="section-title">Calendario de acciones</div>', unsafe_allow_html=True)
@@ -832,7 +861,7 @@ with tab5:
                     <span><span class="legend-dot" style="background:rgba(176,90,90,0.18); border:1px solid rgba(176,90,90,0.4);"></span>Emergencia activa</span>
                 </div>
                 """, unsafe_allow_html=True)
-                st.plotly_chart(fig_gantt, width='stretch', config={"displayModeBar": False})
+                st.plotly_chart(fig_gantt, use_container_width=True, config={"displayModeBar": False})
  
                 # ── TABLAS DETALLADAS ─────────────────────────
                 st.markdown('<div class="section-title">Tablas detalladas</div>', unsafe_allow_html=True)
@@ -845,17 +874,17 @@ with tab5:
                     return "color:#444;"
 
                 st.markdown('<div class="section-title" style="margin-top:8px;">Mantenimiento</div>', unsafe_allow_html=True)
-                st.dataframe(res['maintenance'].style.map(_style), width='stretch')
+                st.dataframe(res['maintenance'].style.map(_style), use_container_width=True)
 
                 st.markdown('<div class="section-title">Despliegue de emergencia</div>', unsafe_allow_html=True)
-                st.dataframe(res['emergency'].style.map(_style), width='stretch')
+                st.dataframe(res['emergency'].style.map(_style), use_container_width=True)
 
                 st.markdown('<div class="section-title">Evolución de salud</div>', unsafe_allow_html=True)
                 st.dataframe(
                     res['health'].style
                         .format("{:.2f}")
                         .background_gradient(cmap="Blues", axis=None),
-                    width='stretch',
+                    use_container_width=True,
                 )
 
                 st.markdown('<div class="section-title">Salud desperdiciada</div>', unsafe_allow_html=True)
@@ -863,5 +892,50 @@ with tab5:
                     res['loss'].style
                         .format("{:.2f}")
                         .background_gradient(cmap="Oranges", axis=None),
-                    width='stretch',
+                    use_container_width=True,
                 )
+with tab6:
+    st.markdown("""
+    ### ***Resultados Computacionales***
+    
+    Se ejecutaron todas las instancias en Google Colab (GPU T4) durante 800 segundos. Los resultados se muestran en la tabla, para 8 de las 10 instancias se encontró la solución óptima, mientras que para las 2 instacias restantes el GAP máximo fue de 4.3%.
+    Tambien es relevante señalar que en ninguna de las soluciones encontradas por el solver se utilizó la flota de emergencia, es decir, no se superó el número máximo de aerogenedares fallados en ningun día del horizonte de tiempo de cada una de las instancias. 
+    """)
+ 
+    results_table = {
+        'Instancia': [
+            'small_01.json', 'small_02.json',
+            'medium_01.json', 'medium_02.json', 'medium_03.json',
+            'large_01.json', 'large_02.json', 'large_03.json', 'large_04.json',
+            'xlarge_01.json',
+        ],
+        'GAP': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0001, 0.0001, 0.0314, 0.0430],
+        'Mejor Cota': [
+            1954.52, 9794.25, 37411.499048, 69428.868824, 52663.231015,
+            81498.893049, 216995.925725, 269704.936656, 650463.1762, 572647.311807,
+        ],
+        'Mejor Solución': [
+            1954.52, 9794.25, 37411.499048, 69428.868824, 52663.231015,
+            81498.893049, 217016.570839, 269722.8572, 671552.806249, 598388.120402,
+        ],
+    }
+ 
+    df_results = pd.DataFrame(results_table)
+ 
+    def _style_gap(val):
+        if isinstance(val, float):
+            if val == 0.0:
+                return "color:#2a6a2a; font-weight:600;"
+            elif val < 0.01:
+                return "color:#5a4a2a;"
+            else:
+                return "color:#7a2020;"
+        return ""
+ 
+    st.dataframe(
+        df_results.style
+            .format({"GAP": "{:.4f}", "Mejor Cota": "{:,.2f}", "Mejor Solución": "{:,.2f}"})
+            .applymap(_style_gap, subset=["GAP"]),
+        use_container_width=True,
+        hide_index=True,
+    )
